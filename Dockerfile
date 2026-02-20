@@ -1,25 +1,25 @@
-# Build stage
-FROM node:20-bookworm-slim AS build
+FROM node:20-bookworm-slim
+
 WORKDIR /app
+
+# 1️⃣ Copy dependency definitions first (for layer caching)
 COPY package*.json ./
+
+# 2️⃣ Install dependencies (including devDeps for TypeScript build)
 RUN npm ci
-COPY tsconfig.json ./
-COPY src ./src
-COPY tests ./tests
+
+# 3️⃣ Copy entire project (this is what was missing)
+COPY . .
+
+# 4️⃣ Build TypeScript
 RUN npm run build
 
-# Runtime stage
-FROM node:20-bookworm-slim
-WORKDIR /app
+# 5️⃣ Remove dev dependencies (optional but clean)
+RUN npm prune --omit=dev
 
-# OpenShift runs with random UID; ensure writable dirs not required
 ENV NODE_ENV=production
 ENV PORT=8080
 
-COPY package*.json ./
-RUN npm ci --omit=dev
-
-COPY --from=build /app/dist ./dist
-
 EXPOSE 8080
+
 CMD ["node", "dist/server.js"]
