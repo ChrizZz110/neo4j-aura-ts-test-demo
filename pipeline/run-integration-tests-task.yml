@@ -1,0 +1,42 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: run-integration-tests
+  namespace: chris-neo-test-dev
+spec:
+  workspaces:
+    - name: source
+  params:
+    - name: connection-url
+      type: string
+    - name: username
+      type: string
+    - name: password
+      type: string
+  steps:
+    - name: run-tests
+      image: node:20-bookworm-slim
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: NEO4J_URI
+          value: "$(params.connection-url)"
+        - name: NEO4J_USER
+          value: "$(params.username)"
+        - name: NEO4J_PASSWORD
+          value: "$(params.password)"
+        - name: NEO4J_DATABASE
+          value: "neo4j"
+      script: |
+        #!/usr/bin/env bash
+        set -e
+
+        echo "Installing dependencies..."
+        npm ci
+
+        echo "Building..."
+        npm run build
+
+        echo "Running integration tests..."
+        npm test
+
+        echo "Tests completed successfully."

@@ -1,0 +1,72 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: aura-ephemeral-pipeline
+  namespace: chris-neo-test-dev
+spec:
+  workspaces:
+    - name: shared-workspace
+
+  params:
+    - name: repo-url
+      type: string
+    - name: revision
+      type: string
+      default: master
+
+  tasks:
+
+    - name: clone-repo
+      taskRef:
+        name: git-clone-repo
+        kind: Task
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+      params:
+        - name: repo-url
+          value: "$(params.repo-url)"
+        - name: revision
+          value: "$(params.revision)"
+
+    - name: create-aura
+      taskRef:
+        name: create-aura-instance
+
+    - name: seed-db
+      runAfter:
+        - create-aura
+      taskRef:
+        name: seed-database
+      params:
+        - name: connection-url
+          value: "$(tasks.create-aura.results.connection-url)"
+        - name: username
+          value: "$(tasks.create-aura.results.username)"
+        - name: password
+          value: "$(tasks.create-aura.results.password)"
+
+    - name: run-tests
+      runAfter:
+        - seed-db
+        - clone-repo
+      taskRef:
+        name: run-integration-tests
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: connection-url
+          value: "$(tasks.create-aura.results.connection-url)"
+        - name: username
+          value: "$(tasks.create-aura.results.username)"
+        - name: password
+          value: "$(tasks.create-aura.results.password)"
+
+  finally:
+    - name: destroy-aura
+      taskRef:
+        name: destroy-aura-instance
+      params:
+        - name: instance-id
+          value: "$(tasks.create-aura.results.instance-id)"

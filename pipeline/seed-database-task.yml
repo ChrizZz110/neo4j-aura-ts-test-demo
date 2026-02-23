@@ -1,0 +1,57 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: seed-database
+  namespace: chris-neo-test-dev
+spec:
+  params:
+    - name: connection-url
+      type: string
+    - name: username
+      type: string
+    - name: password
+      type: string
+  steps:
+    - name: seed
+      image: python:3.11-slim
+      script: |
+        #!/usr/bin/env bash
+        set -e
+
+        pip install neo4j
+
+        python <<'EOF'
+        import time
+        from neo4j import GraphDatabase
+
+        uri = "$(params.connection-url)"
+        username = "$(params.username)"
+        password = "$(params.password)"
+
+        print("Waiting 10 seconds before connecting...")
+        time.sleep(10)
+
+        driver = GraphDatabase.driver(uri, auth=(username, password))
+        driver.verify_connectivity()
+
+        with driver.session(database="neo4j") as session:
+            print("Creating constraint...")
+            session.run("""
+                CREATE CONSTRAINT user_id IF NOT EXISTS
+                FOR (u:User)
+                REQUIRE u.id IS UNIQUE
+            """)
+
+            print("Seeding data...")
+            session.run("""
+                MERGE (u1:User {id: 'seed-1'})
+                SET u1.name = 'Grace Hopper Test'
+
+                MERGE (u2:User {id: 'seed-2'})
+                SET u2.name = 'Alan Turing Test'
+            """)
+
+        driver.close()
+
+        print("Seeding completed successfully.")
+        EOF

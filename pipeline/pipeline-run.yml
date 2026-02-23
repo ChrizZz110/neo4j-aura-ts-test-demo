@@ -1,0 +1,22 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: aura-ephemeral-run
+  namespace: chris-neo-test-dev
+spec:
+  pipelineRef:
+    name: aura-ephemeral-pipeline
+  params:
+    - name: repo-url
+      value: https://github.com/ChrizZz110/neo4j-aura-ts-test-demo.git
+    - name: revision
+      value: master
+  workspaces:
+    - name: shared-workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi

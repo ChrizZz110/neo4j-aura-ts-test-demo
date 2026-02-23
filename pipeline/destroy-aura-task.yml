@@ -1,0 +1,68 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: destroy-aura-instance
+  namespace: chris-neo-test-dev
+spec:
+  params:
+    - name: instance-id
+      type: string
+  steps:
+    - name: destroy
+      image: python:3.11-slim
+      env:
+        - name: AURA_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: aura-api-credentials
+              key: AURA_CLIENT_ID
+        - name: AURA_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: aura-api-credentials
+              key: AURA_CLIENT_SECRET
+      script: |
+        #!/usr/bin/env bash
+        set -e
+
+        pip install requests
+
+        python <<'EOF'
+        import os
+        import requests
+
+        BASE_URL = "https://api.neo4j.io/v1"
+
+        instance_id = "$(params.instance-id)"
+
+        client_id = os.environ["AURA_CLIENT_ID"]
+        client_secret = os.environ["AURA_CLIENT_SECRET"]
+
+        # Get token
+        token_resp = requests.post(
+            "https://api.neo4j.io/oauth/token",
+            auth=(client_id, client_secret),
+            data={"grant_type": "client_credentials"}
+        )
+        token_resp.raise_for_status()
+        access_token = token_resp.json()["access_token"]
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        print(f"Destroying instance {instance_id}")
+
+        resp = requests.delete(
+            f"{BASE_URL}/instances/{instance_id}",
+            headers=headers
+        )
+
+        if not resp.ok:
+            print("DELETE ERROR:", resp.text)
+            resp.raise_for_status()
+
+        print("Instance deletion requested.")
+        # Optional: Double check deletion 
+        EOF

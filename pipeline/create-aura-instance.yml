@@ -1,0 +1,112 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: create-aura-instance
+  namespace: chris-neo-test-dev
+spec:
+  results:
+    - name: instance-id
+    - name: connection-url
+    - name: username
+    - name: password
+  steps:
+    - name: create-and-wait
+      image: python:3.11-slim
+      env:
+        - name: AURA_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: aura-api-credentials
+              key: AURA_CLIENT_ID
+        - name: AURA_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: aura-api-credentials
+              key: AURA_CLIENT_SECRET
+        - name: AURA_TENANT_ID
+          valueFrom:
+            secretKeyRef:
+              name: aura-api-credentials
+              key: AURA_TENANT_ID
+      script: |
+        #!/usr/bin/env bash
+        set -e
+
+        # Install dependency explicitly
+        pip install requests
+
+        python <<'EOF'
+        import os
+        import time
+        import requests
+
+        BASE_URL = "https://api.neo4j.io/v1"
+
+        client_id = os.environ["AURA_CLIENT_ID"]
+        client_secret = os.environ["AURA_CLIENT_SECRET"]
+        tenant_id = os.environ["AURA_TENANT_ID"]
+
+        # 1 Get access token
+        token_resp = requests.post(
+            "https://api.neo4j.io/oauth/token",
+            auth=(client_id, client_secret),
+            data={"grant_type": "client_credentials"}
+        )
+        token_resp.raise_for_status()
+        access_token = token_resp.json()["access_token"]
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        # 2 Create instance (VDC tier example)
+        create_payload = {
+            "version": "5",
+            "region": "europe-west1",
+            "memory": "2GB",
+            "storage": "4GB",
+            "name": "Chris-OpenShift-Pipeline", # Here you can define a more speaking name
+            "type": "enterprise-db",
+            "tenant_id": tenant_id,
+            "cloud_provider": "gcp"
+        }
+
+        resp = requests.post(
+            f"{BASE_URL}/instances",
+            headers=headers,
+            json=create_payload
+        )
+        resp.raise_for_status()
+        instance = resp.json()["data"]
+
+        instance_id = instance["id"]
+        username = instance["username"]
+        password = instance["password"]
+        connection_url = instance["connection_url"]
+
+        print(f"Created instance: {instance_id}")
+
+        # 3 Poll until RUNNING
+        status = None
+        while status != "running":
+            time.sleep(15)
+            r = requests.get(f"{BASE_URL}/instances/{instance_id}", headers=headers)
+            r.raise_for_status()
+            instance_data = r.json()["data"]
+            status = instance_data.get("status")
+            print(f"Status: {status}")
+        
+        # 4 Write results for Tekton
+        with open("/tekton/results/instance-id", "w") as f:
+            f.write(instance_id)
+        with open("/tekton/results/connection-url", "w") as f:
+            f.write(connection_url)
+        with open("/tekton/results/username", "w") as f:
+            f.write(username)
+        with open("/tekton/results/password", "w") as f:
+            f.write(password)
+
+        print("Instance is ready.")
+        
+        EOF
